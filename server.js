@@ -82,16 +82,21 @@ app.post("/usuarios", async (req, res) => {
     if (existing.length > 0) return res.status(409).json({ error: "CPF já cadastrado" });
 
     const [result] = await pool.query(
-      `INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao) VALUES (?, ?, ?, ?, ?, ?, 'analise')`,
+      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao) VALUES (?, ?, ?, ?, ?, STR_TO_DATE(?, '%Y-%m-%d'), 'analise')",
       [cpf, nome, senha, email, telefone || null, data_nascimento || null]
     );
 
-    const [usuario] = await pool.query("SELECT * FROM usuarios WHERE id = ?", [result.insertId]);
+    const [usuario] = await pool.query(
+      "SELECT id, cpf, nome, senha, email, telefone, DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, situacao FROM usuarios WHERE id = ?",
+      [result.insertId]
+    );
+
     res.status(201).json(usuario[0]);
   } catch (err) {
     res.status(500).json({ error: "Erro ao criar usuário" });
   }
 });
+
 
 
 app.post("/login", async (req, res) => {
