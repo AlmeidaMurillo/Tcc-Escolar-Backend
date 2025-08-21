@@ -74,27 +74,16 @@ app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
 
 
 app.post("/usuarios", async (req, res) => {
-  let { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
-
-  if (!cpf || !nome || !senha || !email) {
-    return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
-  }
+  const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
+  if (!cpf || !nome || !senha || !email) return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
 
   try {
     const [existing] = await pool.query("SELECT id FROM usuarios WHERE cpf = ?", [cpf]);
-    if (existing.length > 0) {
-      return res.status(409).json({ error: "CPF já cadastrado" });
-    }
-
-    if (data_nascimento) {
-      data_nascimento = data_nascimento.split("T")[0];
-    }
+    if (existing.length > 0) return res.status(409).json({ error: "CPF já cadastrado" });
 
     const [result] = await pool.query(
-      `INSERT INTO usuarios 
-       (cpf, nome, senha, email, telefone, data_nascimento, situacao) 
-       VALUES (?, ?, ?, ?, ?, ?, 'analise')`,
-      [cpf, nome, senha, email, telefone || null, data_nascimento || null]
+      `INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao) VALUES (?, ?, ?, ?, ?, ?, 'analise')`,
+      [cpf, nome, senha, email, telefone || null, data_nascimento || null] 
     );
 
     const [usuario] = await pool.query("SELECT * FROM usuarios WHERE id = ?", [result.insertId]);
