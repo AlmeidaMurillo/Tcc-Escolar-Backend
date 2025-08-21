@@ -83,7 +83,7 @@ app.post("/usuarios", async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao) VALUES (?, ?, ?, ?, ?, ?, 'analise')`,
-      [cpf, nome, senha, email, telefone || null, data_nascimento || null] 
+      [cpf, nome, senha, email, telefone || null, data_nascimento || null]
     );
 
     const [usuario] = await pool.query("SELECT * FROM usuarios WHERE id = ?", [result.insertId]);
@@ -92,6 +92,7 @@ app.post("/usuarios", async (req, res) => {
     res.status(500).json({ error: "Erro ao criar usuário" });
   }
 });
+
 
 app.post("/login", async (req, res) => {
   const { usuario, senha } = req.body;
