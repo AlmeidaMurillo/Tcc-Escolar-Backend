@@ -72,6 +72,7 @@ app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
   res.json({ exists: rows.length > 0 });
 });
 
+
 app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
   if (!cpf || !nome || !senha || !email) {
@@ -137,6 +138,17 @@ app.patch("/usuarios/:id/rejeitar", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Erro ao rejeitar usuário" });
+  }
+});
+
+app.get("/usuarios/pendentes/count", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'analise'"
+    );
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao contar usuários pendentes" });
   }
 });
 
