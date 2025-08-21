@@ -101,9 +101,37 @@ app.post("/usuarios", async (req, res) => {
   }
 });
 
-
-
 app.post("/login", async (req, res) => {
+  const { cpf, senha } = req.body;
+  if (!cpf || !senha) return res.status(400).json({ error: "CPF e senha são obrigatórios" });
+
+  try {
+    const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "CPF não encontrado" });
+    }
+
+    const usuario = rows[0];
+
+    if (senha !== usuario.senha) {
+      return res.status(401).json({ error: "Senha incorreta" });
+    }
+
+    res.json({
+      message: "Login realizado com sucesso",
+      situacao: usuario.situacao
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao processar login" });
+  }
+});
+
+
+// ROTAS ADMIN ABAIXO
+
+
+app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
   if (!usuario || !senha) return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
   try {
