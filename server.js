@@ -81,14 +81,18 @@ app.post("/usuarios", async (req, res) => {
     const [existing] = await pool.query("SELECT id FROM usuarios WHERE cpf = ?", [cpf]);
     if (existing.length > 0) return res.status(409).json({ error: "CPF já cadastrado" });
 
-    const date = new Date(data_nascimento);
-    date.setDate(date.getDate() + 1);
-
-    const formattedBirthDate = date.toISOString().split('T')[0];
+    let formattedBirthDate = null;
+    if (data_nascimento) {
+      const date = new Date(data_nascimento);
+      if (!isNaN(date)) {
+        date.setDate(date.getDate() + 1);
+        formattedBirthDate = date.toISOString().split("T")[0];
+      }
+    }
 
     const [result] = await pool.query(
       "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao) VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL)",
-      [cpf, nome, senha, email, telefone || null, formattedBirthDate || null]
+      [cpf, nome, senha, email, telefone || null, formattedBirthDate]
     );
     const [usuario] = await pool.query(
       "SELECT id, cpf, nome, senha, email, telefone, DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, situacao FROM usuarios WHERE id = ?",
@@ -97,9 +101,11 @@ app.post("/usuarios", async (req, res) => {
 
     res.status(201).json(usuario[0]);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao criar usuário" });
+    console.error("Erro ao criar usuário:", err);
+    res.status(500).json({ error: "Erro ao criar usuário", details: err.message });
   }
 });
+
 
 app.post("/login", async (req, res) => {
   const { cpf, senha } = req.body;
