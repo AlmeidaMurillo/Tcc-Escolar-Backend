@@ -16,6 +16,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  timezone: '-03:00',
 });
 
 app.get("/", (req, res) => {
@@ -72,7 +73,6 @@ app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
   res.json({ exists: rows.length > 0 });
 });
 
-
 app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
   if (!cpf || !nome || !senha || !email) return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
@@ -84,18 +84,20 @@ app.post("/usuarios", async (req, res) => {
     let formattedBirthDate = null;
     if (data_nascimento) {
       const date = new Date(data_nascimento);
-      if (!isNaN(date)) {
-        date.setDate(date.getDate() + 1);
-        formattedBirthDate = date.toISOString().split("T")[0];
-      }
+      if (!isNaN(date)) formattedBirthDate = date.toISOString().split("T")[0];
     }
 
+    const now = new Date();
+    now.setHours(now.getHours() - 3);
+    const datasolicitacao = now.toISOString().slice(0, 19).replace("T", " ");
+
     const [result] = await pool.query(
-      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao) VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL)",
-      [cpf, nome, senha, email, telefone || null, formattedBirthDate]
+      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao, datasolicitacao) VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL, ?)",
+      [cpf, nome, senha, email, telefone || null, formattedBirthDate, datasolicitacao]
     );
+
     const [usuario] = await pool.query(
-      "SELECT id, cpf, nome, senha, email, telefone, DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, situacao FROM usuarios WHERE id = ?",
+      "SELECT id, cpf, nome, senha, email, telefone, DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, situacao, datasolicitacao FROM usuarios WHERE id = ?",
       [result.insertId]
     );
 
@@ -106,45 +108,29 @@ app.post("/usuarios", async (req, res) => {
   }
 });
 
-
 app.post("/login", async (req, res) => {
   const { cpf, senha } = req.body;
   if (!cpf || !senha) return res.status(400).json({ error: "CPF e senha são obrigatórios" });
 
   try {
     const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "CPF não encontrado" });
-    }
+    if (rows.length === 0) return res.status(404).json({ error: "CPF não encontrado" });
 
     const usuario = rows[0];
+    if (senha !== usuario.senha) return res.status(401).json({ error: "Senha incorreta" });
 
-    if (senha !== usuario.senha) {
-      return res.status(401).json({ error: "Senha incorreta" });
-    }
-
-    res.json({
-      message: "Login realizado com sucesso",
-      situacao: usuario.situacao
-    });
+    res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
   } catch (err) {
     res.status(500).json({ error: "Erro ao processar login" });
   }
 });
-
-
-// ROTAS ADMIN ABAIXO
-
 
 app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
   if (!usuario || !senha) return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
   try {
     const [rows] = await pool.query("SELECT usuario, senha FROM admins WHERE usuario = ?", [usuario]);
-    if (rows.length === 0 || senha !== rows[0].senha) {
-      return res.status(401).json({ error: "Usuário ou senha incorretos" });
-    }
+    if (rows.length === 0 || senha !== rows[0].senha) return res.status(401).json({ error: "Usuário ou senha incorretos" });
     res.json({ message: "Login realizado com sucesso", usuario: rows[0].usuario });
   } catch (err) {
     res.status(500).json({ error: "Erro ao processar login" });
@@ -165,9 +151,12 @@ app.get("/usuarios/pendentes", async (req, res) => {
 app.patch("/usuarios/:id/aprovar", async (req, res) => {
   const { id } = req.params;
   try {
+    const now = new Date();
+    now.setHours(now.getHours() - 3);
+    const datacriacao = now.toISOString().slice(0, 19).replace("T", " ");
     await pool.query(
-      "UPDATE usuarios SET situacao = 'aprovado', datacriacao = NOW() WHERE id = ?",
-      [id]
+      "UPDATE usuarios SET situacao = 'aprovado', datacriacao = ? WHERE id = ?",
+      [datacriacao, id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -187,9 +176,7 @@ app.patch("/usuarios/:id/rejeitar", async (req, res) => {
 
 app.get("/usuarios/pendentes/count", async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'analise'"
-    );
+    const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'analise'");
     res.json({ total: rows[0].total });
   } catch (err) {
     res.status(500).json({ error: "Erro ao contar usuários pendentes" });
@@ -198,9 +185,7 @@ app.get("/usuarios/pendentes/count", async (req, res) => {
 
 app.get("/usuarios/aprovados/count", async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'aprovado'"
-    );
+    const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'aprovado'");
     res.json({ total: rows[0].total });
   } catch (err) {
     res.status(500).json({ error: "Erro ao contar usuários aprovados" });
