@@ -187,6 +187,17 @@ app.get("/usuarios/pendentes/count", async (req, res) => {
   }
 });
 
+app.get("/usuarios/aprovados/count", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'aprovado'"
+    );
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao contar usuários aprovados" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
