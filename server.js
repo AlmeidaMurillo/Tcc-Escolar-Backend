@@ -87,7 +87,7 @@ app.post("/usuarios", async (req, res) => {
     const formattedBirthDate = date.toISOString().split('T')[0];
 
     const [result] = await pool.query(
-      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao) VALUES (?, ?, ?, ?, ?, ?, 'analise')",
+      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao) VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL)",
       [cpf, nome, senha, email, telefone || null, formattedBirthDate || null]
     );
     const [usuario] = await pool.query(
@@ -159,7 +159,10 @@ app.get("/usuarios/pendentes", async (req, res) => {
 app.patch("/usuarios/:id/aprovar", async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query("UPDATE usuarios SET situacao = 'aprovado' WHERE id = ?", [id]);
+    await pool.query(
+      "UPDATE usuarios SET situacao = 'aprovado', datacriacao = NOW() WHERE id = ?",
+      [id]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Erro ao aprovar usuário" });
