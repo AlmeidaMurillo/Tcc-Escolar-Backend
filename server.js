@@ -37,9 +37,27 @@ app.get("/ping", async (req, res) => {
 });
 
 app.get("/usuarios", async (req, res) => {
+  const { search = "", status = "Todos" } = req.query;
   try {
-    const [results] = await pool.query("SELECT * FROM usuarios");
-    res.json(results);
+    let sql = "SELECT id, nome, saldo, situacao FROM usuarios WHERE 1=1";
+    const params = [];
+    if (search) {
+      sql += " AND nome LIKE ?";
+      params.push(`%${search}%`);
+    }
+    if (status !== "Todos") {
+      sql += " AND situacao = ?";
+      params.push(status.toLowerCase());
+    }
+    const [results] = await pool.query(sql, params);
+    const clientes = results.map(u => ({
+      id: u.id,
+      nome: u.nome,
+      saldo: `R$ ${Number(u.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      status: u.situacao === "aprovado" ? "Ativo" : u.situacao === "bloqueado" ? "Bloqueado" : u.situacao,
+      avatar: u.nome.charAt(0).toUpperCase(),
+    }));
+    res.json(clientes);
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar usuários" });
   }
@@ -189,6 +207,15 @@ app.get("/usuarios/aprovados/count", async (req, res) => {
     res.json({ total: rows[0].total });
   } catch (err) {
     res.status(500).json({ error: "Erro ao contar usuários aprovados" });
+  }
+});
+
+app.get("/usuarios/count", async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios");
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao contar usuários" });
   }
 });
 
