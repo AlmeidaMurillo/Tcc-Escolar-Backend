@@ -16,7 +16,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  timezone: '-03:00',
+  timezone: "-03:00",
 });
 
 app.get("/", (req, res) => {
@@ -37,28 +37,28 @@ app.get("/ping", async (req, res) => {
 });
 
 app.get("/usuarios", async (req, res) => {
-  const { search = "", status = "Todos" } = req.query;
+  let { search = "", status = "todos" } = req.query;
+
+  status = status.toLowerCase(); // 🔹 normaliza
+
   try {
-    let sql = "SELECT id, nome, saldo, situacao FROM usuarios WHERE 1=1";
-    const params = [];
+    let query = "SELECT * FROM usuarios WHERE situacao IN ('aprovado','bloqueado')";
+    const values = [];
+
+    if (status !== "todos") {
+      query += " AND situacao = ?";
+      values.push(status);
+    }
+
     if (search) {
-      sql += " AND nome LIKE ?";
-      params.push(`%${search}%`);
+      query += " AND (nome LIKE ? OR cpf LIKE ?)";
+      values.push(`%${search}%`, `%${search}%`);
     }
-    if (status !== "Todos") {
-      sql += " AND situacao = ?";
-      params.push(status.toLowerCase());
-    }
-    const [results] = await pool.query(sql, params);
-    const clientes = results.map(u => ({
-      id: u.id,
-      nome: u.nome,
-      saldo: `R$ ${Number(u.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      status: u.situacao === "aprovado" ? "Ativo" : u.situacao === "bloqueado" ? "Bloqueado" : u.situacao,
-      avatar: u.nome.charAt(0).toUpperCase(),
-    }));
-    res.json(clientes);
+
+    const [rows] = await pool.query(query, values);
+    res.json(rows);
   } catch (err) {
+    console.error("Erro ao buscar usuários:", err);
     res.status(500).json({ error: "Erro ao buscar usuários" });
   }
 });
@@ -75,25 +75,38 @@ app.get("/usuarios/check-cpf/:cpf", async (req, res) => {
 
 app.get("/usuarios/check-nome/:nome", async (req, res) => {
   const { nome } = req.params;
-  const [rows] = await pool.query("SELECT id FROM usuarios WHERE nome = ?", [nome]);
-  res.json({ exists: rows.length > 0 });
+  try {
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE nome = ?", [nome]);
+    res.json({ exists: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar nome" });
+  }
 });
 
 app.get("/usuarios/check-email/:email", async (req, res) => {
   const { email } = req.params;
-  const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
-  res.json({ exists: rows.length > 0 });
+  try {
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    res.json({ exists: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar email" });
+  }
 });
 
 app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
   const { telefone } = req.params;
-  const [rows] = await pool.query("SELECT id FROM usuarios WHERE telefone = ?", [telefone]);
-  res.json({ exists: rows.length > 0 });
+  try {
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE telefone = ?", [telefone]);
+    res.json({ exists: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar telefone" });
+  }
 });
 
 app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
-  if (!cpf || !nome || !senha || !email) return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
+  if (!cpf || !nome || !senha || !email)
+    return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
 
   try {
     const [existing] = await pool.query("SELECT id FROM usuarios WHERE cpf = ?", [cpf]);
@@ -146,9 +159,12 @@ app.post("/login", async (req, res) => {
 app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
   if (!usuario || !senha) return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
+
   try {
     const [rows] = await pool.query("SELECT usuario, senha FROM admins WHERE usuario = ?", [usuario]);
-    if (rows.length === 0 || senha !== rows[0].senha) return res.status(401).json({ error: "Usuário ou senha incorretos" });
+    if (rows.length === 0 || senha !== rows[0].senha)
+      return res.status(401).json({ error: "Usuário ou senha incorretos" });
+
     res.json({ message: "Login realizado com sucesso", usuario: rows[0].usuario });
   } catch (err) {
     res.status(500).json({ error: "Erro ao processar login" });
@@ -172,10 +188,10 @@ app.patch("/usuarios/:id/aprovar", async (req, res) => {
     const now = new Date();
     now.setHours(now.getHours() - 3);
     const datacriacao = now.toISOString().slice(0, 19).replace("T", " ");
-    await pool.query(
-      "UPDATE usuarios SET situacao = 'aprovado', datacriacao = ? WHERE id = ?",
-      [datacriacao, id]
-    );
+    await pool.query("UPDATE usuarios SET situacao = 'aprovado', datacriacao = ? WHERE id = ?", [
+      datacriacao,
+      id,
+    ]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Erro ao aprovar usuário" });
