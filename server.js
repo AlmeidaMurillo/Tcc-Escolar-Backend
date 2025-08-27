@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(cors());
@@ -42,22 +43,39 @@ app.get("/ping", async (req, res) => {
 
 app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
   const { email } = req.body;
+
   if (!email || !email.includes("@")) {
     return res.status(400).json({ error: "Email inválido" });
   }
 
   try {
-    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Email não encontrado" });
+    const [usuarios] = await pool.query("SELECT id, nome FROM usuarios WHERE email = ?", [email]);
+    if (usuarios.length === 0) {
+      return res.status(404).json({ error: "Email não encontrado em nenhuma conta" });
     }
 
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString(); 
-    const expiracao = Date.now() + TEMPO_EXPIRACAO;
+    const usuario = usuarios[0];
 
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiracao = Date.now() + TEMPO_EXPIRACAO;
     codigosRecuperacao[email] = { codigo, expiracao };
 
-    console.log(`Código para ${email}: ${codigo}`);
+    let transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    let mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Código de recuperação de senha",
+      text: `Olá ${usuario.nome},\n\nSeu código para redefinir a senha é: ${codigo}\nEle expira em 30 segundos.\n\nSe você não solicitou, ignore este email.`,
+    };
+
+    await transporter.sendMail(mailOptions);
 
     res.json({ message: `Código enviado para ${email}`, tempo: TEMPO_EXPIRACAO / 1000 });
   } catch (err) {
@@ -68,6 +86,7 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
 
 app.post("/recuperar-senha/validar-codigo", (req, res) => {
   const { email, codigo } = req.body;
+
   if (!email || !codigo) return res.status(400).json({ error: "Email e código são obrigatórios" });
 
   const info = codigosRecuperacao[email];
@@ -85,6 +104,7 @@ app.post("/recuperar-senha/validar-codigo", (req, res) => {
 
 app.post("/recuperar-senha/redefinir", async (req, res) => {
   const { email, codigo, novaSenha } = req.body;
+
   if (!email || !codigo || !novaSenha) return res.status(400).json({ error: "Campos obrigatórios faltando" });
 
   const info = codigosRecuperacao[email];
