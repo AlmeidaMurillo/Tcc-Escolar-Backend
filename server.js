@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
+const crypto = require("crypto");
 
 const app = express();
 app.use(cors());
@@ -18,6 +19,9 @@ const pool = mysql.createPool({
   queueLimit: 0,
   timezone: "-03:00",
 });
+
+let codigosRecuperacao = {}; 
+const TEMPO_EXPIRACAO = 30 * 1000;
 
 app.get("/", (req, res) => {
   res.send("✅ Backend + MySQL rodando!");
@@ -36,10 +40,75 @@ app.get("/ping", async (req, res) => {
   }
 });
 
+app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ error: "Email inválido" });
+  }
+
+  try {
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Email não encontrado" });
+    }
+
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString(); 
+    const expiracao = Date.now() + TEMPO_EXPIRACAO;
+
+    codigosRecuperacao[email] = { codigo, expiracao };
+
+    console.log(`Código para ${email}: ${codigo}`);
+
+    res.json({ message: `Código enviado para ${email}`, tempo: TEMPO_EXPIRACAO / 1000 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao enviar código" });
+  }
+});
+
+app.post("/recuperar-senha/validar-codigo", (req, res) => {
+  const { email, codigo } = req.body;
+  if (!email || !codigo) return res.status(400).json({ error: "Email e código são obrigatórios" });
+
+  const info = codigosRecuperacao[email];
+  if (!info) return res.status(400).json({ error: "Nenhum código enviado para este email" });
+
+  if (Date.now() > info.expiracao) {
+    delete codigosRecuperacao[email];
+    return res.status(400).json({ error: "Código expirado" });
+  }
+
+  if (codigo !== info.codigo) return res.status(400).json({ error: "Código inválido" });
+
+  res.json({ message: "Código validado com sucesso" });
+});
+
+app.post("/recuperar-senha/redefinir", async (req, res) => {
+  const { email, codigo, novaSenha } = req.body;
+  if (!email || !codigo || !novaSenha) return res.status(400).json({ error: "Campos obrigatórios faltando" });
+
+  const info = codigosRecuperacao[email];
+  if (!info) return res.status(400).json({ error: "Nenhum código enviado para este email" });
+  if (Date.now() > info.expiracao) {
+    delete codigosRecuperacao[email];
+    return res.status(400).json({ error: "Código expirado" });
+  }
+  if (codigo !== info.codigo) return res.status(400).json({ error: "Código inválido" });
+
+  try {
+    await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [novaSenha, email]);
+    delete codigosRecuperacao[email];
+    res.json({ message: "Senha redefinida com sucesso" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao redefinir senha" });
+  }
+});
+
 app.get("/usuarios", async (req, res) => {
   let { search = "", status = "todos" } = req.query;
 
-  status = status.toLowerCase(); // 🔹 normaliza
+  status = status.toLowerCase(); 
 
   try {
     let query = "SELECT * FROM usuarios WHERE situacao IN ('aprovado','bloqueado')";
