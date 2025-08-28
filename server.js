@@ -2,9 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
-const nodemailer = require("nodemailer");
-
-const codigosRecuperacao = {};
+const SibApiV3Sdk = require("sib-api-v3-sdk");
 
 const app = express();
 app.use(cors());
@@ -22,42 +20,36 @@ const pool = mysql.createPool({
   timezone: "-03:00",
 });
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+let defaultClient = SibApiV3Sdk.ApiClient.instance;
+let apiKey = defaultClient.authentications["api-key"];
+apiKey.apiKey = process.env.BREVO_API_KEY;
 
-function gerarCodigo() {
-  return Math.floor(100000 + Math.random() * 900000).toString(); 
-}
+const tranEmailApi = new SibApiV3Sdk.TransactionalEmailsApi();
+
 
 
 app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email é obrigatório" });
+  if (!email) return res.status(400).json({ error: "Informe o email" });
 
   try {
-    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
-    if (rows.length === 0) return res.status(404).json({ error: "Email não encontrado" });
+    const [rows] = await pool.query("SELECT * FROM usuarios WHERE email = ?", [email]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Email não encontrado" });
+    }
 
-    const codigo = gerarCodigo();
-    const expires = Date.now() + 5 * 60 * 1000; 
+    const codigo = Math.floor(100000 + Math.random() * 900000); 
+    global.codigosRecuperacao = global.codigosRecuperacao || {};
+    global.codigosRecuperacao[email] = { codigo, expira: Date.now() + 5 * 60 * 1000 }; 
 
-    codigosRecuperacao[email] = { codigo, expires };
-
-    await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: "Código de recuperação de senha",
-      text: `Seu código de recuperação é: ${codigo} (válido por 5 minutos)`,
+    await tranEmailApi.sendTransacEmail({
+      sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
+      to: [{ email }],
+      subject: "Recuperação de senha",
+      textContent: `Seu código de recuperação é: ${codigo}`,
     });
 
-    res.json({ message: "Código enviado com sucesso!" });
+    res.json({ message: "Código enviado para o email" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao enviar código" });
@@ -66,30 +58,26 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
 
 app.post("/recuperar-senha/validar-codigo", (req, res) => {
   const { email, codigo } = req.body;
-  if (!codigosRecuperacao[email]) return res.status(400).json({ error: "Código não encontrado" });
+  if (!email || !codigo) return res.status(400).json({ error: "Dados inválidos" });
 
-  const { codigo: codigoSalvo, expires } = codigosRecuperacao[email];
-  if (Date.now() > expires) {
-    delete codigosRecuperacao[email];
-    return res.status(400).json({ error: "Código expirado" });
-  }
+  const dados = global.codigosRecuperacao?.[email];
+  if (!dados) return res.status(400).json({ error: "Código não solicitado" });
+  if (Date.now() > dados.expira) return res.status(400).json({ error: "Código expirado" });
+  if (dados.codigo != codigo) return res.status(400).json({ error: "Código inválido" });
 
-  if (codigo !== codigoSalvo) return res.status(400).json({ error: "Código inválido" });
-
-  res.json({ message: "Código validado com sucesso!" });
+  res.json({ message: "Código válido" });
 });
 
-app.post("/recuperar-senha/redefinir-senha", async (req, res) => {
+app.post("/recuperar-senha/redefinir", async (req, res) => {
   const { email, novaSenha } = req.body;
-  if (!codigosRecuperacao[email]) return res.status(400).json({ error: "Código não validado" });
+  if (!email || !novaSenha) return res.status(400).json({ error: "Dados inválidos" });
 
   try {
     await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [novaSenha, email]);
-    delete codigosRecuperacao[email]; 
-    res.json({ message: "Senha redefinida com sucesso!" });
+    res.json({ message: "Senha atualizada com sucesso" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro ao redefinir senha" });
+    res.status(500).json({ error: "Erro ao atualizar senha" });
   }
 });
 
