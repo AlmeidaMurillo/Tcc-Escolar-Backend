@@ -20,11 +20,11 @@ const pool = mysql.createPool({
   timezone: "-03:00",
 });
 
-let defaultClient = SibApiV3Sdk.ApiClient.instance;
-let apiKey = defaultClient.authentications["api-key"];
-apiKey.apiKey = process.env.BREVO_API_KEY;
-
-const tranEmailApi = new SibApiV3Sdk.TransactionalEmailsApi();
+const brevoClient = new brevo.TransactionalEmailsApi();
+brevoClient.setApiKey(
+  brevo.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY
+);
 
 
 
@@ -38,15 +38,15 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
       return res.status(404).json({ error: "Email não encontrado" });
     }
 
-    const codigo = Math.floor(100000 + Math.random() * 900000); 
+    const codigo = Math.floor(100000 + Math.random() * 900000);
     global.codigosRecuperacao = global.codigosRecuperacao || {};
-    global.codigosRecuperacao[email] = { codigo, expira: Date.now() + 5 * 60 * 1000 }; 
+    global.codigosRecuperacao[email] = { codigo, expira: Date.now() + 5 * 60 * 1000 };
 
-    await tranEmailApi.sendTransacEmail({
+    await brevoClient.sendTransacEmail({
       sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
       to: [{ email }],
       subject: "Recuperação de senha",
-      textContent: `Seu código de recuperação é: ${codigo}`,
+      htmlContent: `<p>Seu código de recuperação é: <b>${codigo}</b></p>`,
     });
 
     res.json({ message: "Código enviado para o email" });
@@ -101,7 +101,7 @@ app.get("/ping", async (req, res) => {
 app.get("/usuarios", async (req, res) => {
   let { search = "", status = "todos" } = req.query;
 
-  status = status.toLowerCase(); 
+  status = status.toLowerCase();
 
   try {
     let query = "SELECT * FROM usuarios WHERE situacao IN ('aprovado','bloqueado')";
