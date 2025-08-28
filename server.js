@@ -38,6 +38,12 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
       return res.status(404).json({ error: "Email não encontrado" });
     }
 
+    const usuario = rows[0];
+
+    if (usuario.situacao !== "aprovado") {
+      return res.json({ situacao: usuario.situacao });
+    }
+
     const codigo = Math.floor(100000 + Math.random() * 900000);
     global.codigosRecuperacao = global.codigosRecuperacao || {};
     global.codigosRecuperacao[email] = { codigo, expira: Date.now() + 5 * 60 * 1000 };
@@ -49,7 +55,7 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
       htmlContent: `<p>Seu código de recuperação é: <b>${codigo}</b></p>`,
     });
 
-    res.json({ message: "Código enviado para o email" });
+    res.json({ message: "Código enviado para o email", situacao: usuario.situacao });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao enviar código" });
