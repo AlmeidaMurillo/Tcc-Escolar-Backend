@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
-const SibApiV3Sdk = require("sib-api-v3-sdk");
+const brevo = require("@getbrevo/brevo");
 
 const app = express();
 app.use(cors());
