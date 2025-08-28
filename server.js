@@ -2,6 +2,9 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
+const nodemailer = require("nodemailer");
+
+const codigosRecuperacao = {};
 
 const app = express();
 app.use(cors());
@@ -17,6 +20,77 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   timezone: "-03:00",
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+function gerarCodigo() {
+  return Math.floor(100000 + Math.random() * 900000).toString(); 
+}
+
+
+app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email é obrigatório" });
+
+  try {
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+    if (rows.length === 0) return res.status(404).json({ error: "Email não encontrado" });
+
+    const codigo = gerarCodigo();
+    const expires = Date.now() + 5 * 60 * 1000; 
+
+    codigosRecuperacao[email] = { codigo, expires };
+
+    await transporter.sendMail({
+      from: process.env.SMTP_USER,
+      to: email,
+      subject: "Código de recuperação de senha",
+      text: `Seu código de recuperação é: ${codigo} (válido por 5 minutos)`,
+    });
+
+    res.json({ message: "Código enviado com sucesso!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao enviar código" });
+  }
+});
+
+app.post("/recuperar-senha/validar-codigo", (req, res) => {
+  const { email, codigo } = req.body;
+  if (!codigosRecuperacao[email]) return res.status(400).json({ error: "Código não encontrado" });
+
+  const { codigo: codigoSalvo, expires } = codigosRecuperacao[email];
+  if (Date.now() > expires) {
+    delete codigosRecuperacao[email];
+    return res.status(400).json({ error: "Código expirado" });
+  }
+
+  if (codigo !== codigoSalvo) return res.status(400).json({ error: "Código inválido" });
+
+  res.json({ message: "Código validado com sucesso!" });
+});
+
+app.post("/recuperar-senha/redefinir-senha", async (req, res) => {
+  const { email, novaSenha } = req.body;
+  if (!codigosRecuperacao[email]) return res.status(400).json({ error: "Código não validado" });
+
+  try {
+    await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [novaSenha, email]);
+    delete codigosRecuperacao[email]; 
+    res.json({ message: "Senha redefinida com sucesso!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao redefinir senha" });
+  }
 });
 
 app.get("/", (req, res) => {
