@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
 const brevo = require("@getbrevo/brevo");
+const bcrypt = require("bcrypt");
 
 const app = express();
 app.use(cors());
@@ -79,10 +80,10 @@ app.post("/recuperar-senha/redefinir", async (req, res) => {
   if (!email || !novaSenha) return res.status(400).json({ error: "Dados inválidos" });
 
   try {
-    await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [novaSenha, email]);
+    const hash = await bcrypt.hash(novaSenha, 10);
+    await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [hash, email]);
     res.json({ message: "Senha atualizada com sucesso" });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Erro ao atualizar senha" });
   }
 });
@@ -173,17 +174,27 @@ app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
 
 app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
-  if (!cpf || !nome || !senha || !email)
-    return res.status(400).json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
+
+  if (!cpf || !nome || !senha || !email) {
+    return res
+      .status(400)
+      .json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
+  }
 
   try {
     const [existing] = await pool.query("SELECT id FROM usuarios WHERE cpf = ?", [cpf]);
-    if (existing.length > 0) return res.status(409).json({ error: "CPF já cadastrado" });
+    if (existing.length > 0) {
+      return res.status(409).json({ error: "CPF já cadastrado" });
+    }
+
+    const hashSenha = await bcrypt.hash(senha, 10);
 
     let formattedBirthDate = null;
     if (data_nascimento) {
       const date = new Date(data_nascimento);
-      if (!isNaN(date)) formattedBirthDate = date.toISOString().split("T")[0];
+      if (!isNaN(date)) {
+        formattedBirthDate = date.toISOString().split("T")[0];
+      }
     }
 
     const now = new Date();
@@ -191,12 +202,18 @@ app.post("/usuarios", async (req, res) => {
     const datasolicitacao = now.toISOString().slice(0, 19).replace("T", " ");
 
     const [result] = await pool.query(
-      "INSERT INTO usuarios (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao, datasolicitacao) VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL, ?)",
-      [cpf, nome, senha, email, telefone || null, formattedBirthDate, datasolicitacao]
+      `INSERT INTO usuarios 
+        (cpf, nome, senha, email, telefone, data_nascimento, situacao, datacriacao, datasolicitacao) 
+       VALUES (?, ?, ?, ?, ?, ?, 'analise', NULL, ?)`,
+      [cpf, nome, hashSenha, email, telefone || null, formattedBirthDate, datasolicitacao]
     );
 
     const [usuario] = await pool.query(
-      "SELECT id, cpf, nome, senha, email, telefone, DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, situacao, datasolicitacao FROM usuarios WHERE id = ?",
+      `SELECT id, cpf, nome, email, telefone, 
+              DATE_FORMAT(data_nascimento, '%Y-%m-%d') AS data_nascimento, 
+              situacao, datasolicitacao 
+         FROM usuarios 
+        WHERE id = ?`,
       [result.insertId]
     );
 
@@ -216,7 +233,8 @@ app.post("/login", async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: "CPF não encontrado" });
 
     const usuario = rows[0];
-    if (senha !== usuario.senha) return res.status(401).json({ error: "Senha incorreta" });
+    const senhaValida = await bcrypt.compare(senha, usuario.senha);
+    if (!senhaValida) return res.status(401).json({ error: "Senha incorreta" });
 
     res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
   } catch (err) {
