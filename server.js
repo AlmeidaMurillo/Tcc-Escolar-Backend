@@ -274,25 +274,69 @@ app.patch("/usuarios/:id/aprovar", async (req, res) => {
     const now = new Date();
     now.setHours(now.getHours() - 3);
     const datacriacao = now.toISOString().slice(0, 19).replace("T", " ");
-    await pool.query("UPDATE usuarios SET situacao = 'aprovado', datacriacao = ? WHERE id = ?", [
-      datacriacao,
-      id,
-    ]);
+
+    await pool.query(
+      "UPDATE usuarios SET situacao = 'aprovado', datacriacao = ? WHERE id = ?",
+      [datacriacao, id]
+    );
+
+    const [rows] = await pool.query("SELECT nome, email FROM usuarios WHERE id = ?", [id]);
+    if (rows.length > 0) {
+      const usuario = rows[0];
+
+      await brevoClient.sendTransacEmail({
+        sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
+        to: [{ email: usuario.email }],
+        subject: "✅ Cadastro Aprovado",
+        htmlContent: `
+          <p>Olá <b>${usuario.nome}</b>,</p>
+          <p>Seus dados foram <span style="color:green"><b>aprovados</b></span> com sucesso!</p>
+          <p>Agora você já pode acessar o sistema normalmente clicando no link abaixo:</p>
+          <p>
+            <a href="https://mercadopago-psi.vercel.app/" 
+               style="display:inline-block;padding:10px 20px;background:#28a745;color:#fff;
+                      text-decoration:none;border-radius:5px;font-weight:bold;">
+              👉 Acessar Sistema
+            </a>
+          </p>
+        `,
+      });
+    }
+
     res.json({ success: true });
   } catch (err) {
+    console.error("Erro ao aprovar usuário:", err);
     res.status(500).json({ error: "Erro ao aprovar usuário" });
   }
 });
+
 
 app.patch("/usuarios/:id/rejeitar", async (req, res) => {
   const { id } = req.params;
   try {
     await pool.query("UPDATE usuarios SET situacao = 'rejeitado' WHERE id = ?", [id]);
+
+    const [rows] = await pool.query("SELECT nome, email FROM usuarios WHERE id = ?", [id]);
+    if (rows.length > 0) {
+      const usuario = rows[0];
+
+      await brevoClient.sendTransacEmail({
+        sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
+        to: [{ email: usuario.email }],
+        subject: "❌ Cadastro Reprovado",
+        htmlContent: `<p>Olá <b>${usuario.nome}</b>,</p>
+                      <p>Infelizmente seus dados foram <span style="color:red"><b>reprovados</b></span>.</p>
+                      <p>Entre em contato com o suporte caso queira mais informações.</p>`,
+      });
+    }
+
     res.json({ success: true });
   } catch (err) {
+    console.error("Erro ao rejeitar usuário:", err);
     res.status(500).json({ error: "Erro ao rejeitar usuário" });
   }
 });
+
 
 app.get("/usuarios/pendentes/count", async (req, res) => {
   try {
