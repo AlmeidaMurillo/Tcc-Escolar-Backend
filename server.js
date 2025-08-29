@@ -293,7 +293,7 @@ app.patch("/usuarios/:id/aprovar", async (req, res) => {
           <p>Seus dados foram <span style="color:green"><b>aprovados</b></span> com sucesso!</p>
           <p>Agora você já pode acessar o sistema normalmente clicando no link abaixo:</p>
           <p>
-            <a href="https://mercadopago-psi.vercel.app/" 
+            <a href="https://mercadopago-psi.vercel.app/login" 
                style="display:inline-block;padding:10px 20px;background:#28a745;color:#fff;
                       text-decoration:none;border-radius:5px;font-weight:bold;">
               👉 Acessar Sistema
