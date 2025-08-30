@@ -21,6 +21,22 @@ const pool = mysql.createPool({
   timezone: "-03:00",
 });
 
+// logs
+
+async function Logs(id_usuario, tipo, detalhes, req) {
+  try {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] || 'Desconhecido';
+
+    await pool.query(
+      `INSERT INTO logs (id_usuario, tipo, detalhes, ip_origem, user_agent) VALUES (?, ?, ?, ?, ?)`,
+      [id_usuario, tipo, detalhes, ip, userAgent]
+    );
+  } catch (err) {
+    console.error("Erro ao registrar log:", err);
+  }
+}
+
 const brevoClient = new brevo.TransactionalEmailsApi();
 brevoClient.setApiKey(
   brevo.TransactionalEmailsApiApiKeys.apiKey,
@@ -230,14 +246,23 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
-    if (rows.length === 0) return res.status(404).json({ error: "CPF não encontrado" });
+    if (rows.length === 0) {
+      await Logs(null, "login_erro", `Tentativa de login falhou - CPF não encontrado: ${cpf}`, req);
+      return res.status(404).json({ error: "CPF não encontrado" });
+    }
 
     const usuario = rows[0];
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
-    if (!senhaValida) return res.status(401).json({ error: "Senha incorreta" });
+    if (!senhaValida) {
+      await Logs(usuario.id, "login_erro", "Senha incorreta", req);
+      return res.status(401).json({ error: "Senha incorreta" });
+    }
 
+    await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
     res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
   } catch (err) {
+    console.error(err);
+    await Logs(null, "login_erro", `Erro ao processar login: ${err.message}`, req);
     res.status(500).json({ error: "Erro ao processar login" });
   }
 });
