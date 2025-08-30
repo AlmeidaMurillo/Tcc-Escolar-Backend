@@ -51,7 +51,15 @@ brevoClient.setApiKey(
 app.get("/logs", async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT l.id, l.id_usuario, u.nome AS usuario, l.tipo, l.detalhes, l.ip_origem, l.user_agent, l.data_criacao
+      SELECT 
+        l.id_log AS id,
+        l.id_usuario, 
+        u.nome AS usuario, 
+        l.tipo, 
+        l.detalhes, 
+        l.ip_origem, 
+        l.user_agent, 
+        l.data_criacao
       FROM logs l
       LEFT JOIN usuarios u ON u.id = l.id_usuario
       ORDER BY l.data_criacao DESC
