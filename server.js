@@ -23,8 +23,22 @@ const pool = mysql.createPool({
 
 // logs
 
-async function Logs(id_usuario, tipo, detalhes, req) {
+async function Logs(id_usuario, tipo, detalhes, req, identificador = null) {
   try {
+    let usuarioId = id_usuario;
+    let usuarioNome = null;
+
+    if (identificador) {
+      const [rows] = await pool.query(
+        "SELECT id, nome FROM usuarios WHERE email = ? OR cpf = ?",
+        [identificador, identificador]
+      );
+      if (rows.length > 0) {
+        usuarioId = rows[0].id;
+        usuarioNome = rows[0].nome;
+      }
+    }
+
     const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'Desconhecido';
 
@@ -35,7 +49,7 @@ async function Logs(id_usuario, tipo, detalhes, req) {
     await pool.query(
       `INSERT INTO logs (id_usuario, tipo, detalhes, ip_origem, user_agent, data_criacao) 
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [id_usuario, tipo, detalhes, ip, userAgent, dataCriacao]
+      [usuarioId, tipo + (usuarioNome ? ` | ${usuarioNome}` : ""), detalhes, ip, userAgent, dataCriacao]
     );
   } catch (err) {
     console.error("Erro ao registrar log:", err);
@@ -88,7 +102,6 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
     }
 
     const usuario = rows[0];
-
     if (usuario.situacao !== "aprovado") {
       await Logs(usuario.id, "recuperar_senha_erro", `Usuário não aprovado: ${email}`, req);
       return res.json({ situacao: usuario.situacao });
@@ -109,7 +122,7 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
     res.json({ message: "Código enviado para o email", situacao: usuario.situacao });
   } catch (err) {
     console.error(err);
-    await Logs(null, "recuperar_senha_erro", `Erro ao enviar código para ${email}: ${err.message}`, req);
+    await Logs(null, "recuperar_senha_erro", `Erro ao enviar código para ${email}: ${err.message}`, req, email);
     res.status(500).json({ error: "Erro ao enviar código" });
   }
 });
@@ -123,19 +136,19 @@ app.post("/recuperar-senha/validar-codigo", async (req, res) => {
 
   const dados = global.codigosRecuperacao?.[email];
   if (!dados) {
-    await Logs(null, "recuperar_senha_erro", `Código não solicitado para: ${email}`, req);
+    await Logs(null, "recuperar_senha_erro", `Código não solicitado para: ${email}`, req, email);
     return res.status(400).json({ error: "Código não solicitado" });
   }
   if (Date.now() > dados.expira) {
-    await Logs(null, "recuperar_senha_erro", `Código expirado para: ${email}`, req);
+    await Logs(null, "recuperar_senha_erro", `Código expirado para: ${email}`, req, email);
     return res.status(400).json({ error: "Código expirado" });
   }
   if (dados.codigo != codigo) {
-    await Logs(null, "recuperar_senha_erro", `Código inválido para: ${email}`, req);
+    await Logs(null, "recuperar_senha_erro", `Código inválido para: ${email}`, req, email);
     return res.status(400).json({ error: "Código inválido" });
   }
 
-  await Logs(null, "recuperar_senha_validar", `Código válido para: ${email}`, req);
+  await Logs(null, "recuperar_senha_validar", `Código válido para: ${email}`, req, email);
   res.json({ message: "Código válido" });
 });
 
@@ -147,14 +160,21 @@ app.post("/recuperar-senha/redefinir", async (req, res) => {
   }
 
   try {
+    const [rows] = await pool.query("SELECT id, nome FROM usuarios WHERE email = ?", [email]);
+    if (rows.length === 0) {
+      await Logs(null, "recuperar_senha_erro", `Usuário não encontrado ao redefinir senha: ${email}`, req, email);
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+
+    const usuario = rows[0];
     const hash = await bcrypt.hash(novaSenha, 10);
     await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [hash, email]);
 
-    await Logs(null, "recuperar_senha_redefinir", `Senha redefinida com sucesso para: ${email}`, req);
+    await Logs(usuario.id, "recuperar_senha_redefinir", `Senha redefinida com sucesso para: ${email}`, req, email);
     res.json({ message: "Senha atualizada com sucesso" });
   } catch (err) {
     console.error(err);
-    await Logs(null, "recuperar_senha_erro", `Erro ao redefinir senha para ${email}: ${err.message}`, req);
+    await Logs(null, "recuperar_senha_erro", `Erro ao redefinir senha para ${email}: ${err.message}`, req, email);
     res.status(500).json({ error: "Erro ao atualizar senha" });
   }
 });
