@@ -28,9 +28,14 @@ async function Logs(id_usuario, tipo, detalhes, req) {
     const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'Desconhecido';
 
+    const now = new Date();
+    now.setHours(now.getHours() - 3);
+    const dataCriacao = now.toISOString().slice(0, 19).replace("T", " ");
+
     await pool.query(
-      `INSERT INTO logs (id_usuario, tipo, detalhes, ip_origem, user_agent) VALUES (?, ?, ?, ?, ?)`,
-      [id_usuario, tipo, detalhes, ip, userAgent]
+      `INSERT INTO logs (id_usuario, tipo, detalhes, ip_origem, user_agent, data_criacao) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id_usuario, tipo, detalhes, ip, userAgent, dataCriacao]
     );
   } catch (err) {
     console.error("Erro ao registrar log:", err);
@@ -43,21 +48,41 @@ brevoClient.setApiKey(
   process.env.BREVO_API_KEY
 );
 
+app.get("/logs", async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT l.id, l.id_usuario, u.nome AS usuario, l.tipo, l.detalhes, l.ip_origem, l.user_agent, l.data_criacao
+      FROM logs l
+      LEFT JOIN usuarios u ON u.id = l.id_usuario
+      ORDER BY l.data_criacao DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar logs:", err);
+    res.status(500).json({ error: "Erro ao buscar logs" });
+  }
+});
+
 
 
 app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Informe o email" });
+  if (!email) {
+    await Logs(null, "recuperar_senha_erro", "Email não informado", req);
+    return res.status(400).json({ error: "Informe o email" });
+  }
 
   try {
     const [rows] = await pool.query("SELECT * FROM usuarios WHERE email = ?", [email]);
     if (rows.length === 0) {
+      await Logs(null, "recuperar_senha_erro", `Email não encontrado: ${email}`, req);
       return res.status(404).json({ error: "Email não encontrado" });
     }
 
     const usuario = rows[0];
 
     if (usuario.situacao !== "aprovado") {
+      await Logs(usuario.id, "recuperar_senha_erro", `Usuário não aprovado: ${email}`, req);
       return res.json({ situacao: usuario.situacao });
     }
 
@@ -72,34 +97,56 @@ app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
       htmlContent: `<p>Seu código de recuperação é: <b>${codigo}</b></p>`,
     });
 
+    await Logs(usuario.id, "recuperar_senha_enviar", `Código enviado para o email: ${email}`, req);
     res.json({ message: "Código enviado para o email", situacao: usuario.situacao });
   } catch (err) {
     console.error(err);
+    await Logs(null, "recuperar_senha_erro", `Erro ao enviar código para ${email}: ${err.message}`, req);
     res.status(500).json({ error: "Erro ao enviar código" });
   }
 });
 
-app.post("/recuperar-senha/validar-codigo", (req, res) => {
+app.post("/recuperar-senha/validar-codigo", async (req, res) => {
   const { email, codigo } = req.body;
-  if (!email || !codigo) return res.status(400).json({ error: "Dados inválidos" });
+  if (!email || !codigo) {
+    await Logs(null, "recuperar_senha_erro", "Dados inválidos ao validar código", req);
+    return res.status(400).json({ error: "Dados inválidos" });
+  }
 
   const dados = global.codigosRecuperacao?.[email];
-  if (!dados) return res.status(400).json({ error: "Código não solicitado" });
-  if (Date.now() > dados.expira) return res.status(400).json({ error: "Código expirado" });
-  if (dados.codigo != codigo) return res.status(400).json({ error: "Código inválido" });
+  if (!dados) {
+    await Logs(null, "recuperar_senha_erro", `Código não solicitado para: ${email}`, req);
+    return res.status(400).json({ error: "Código não solicitado" });
+  }
+  if (Date.now() > dados.expira) {
+    await Logs(null, "recuperar_senha_erro", `Código expirado para: ${email}`, req);
+    return res.status(400).json({ error: "Código expirado" });
+  }
+  if (dados.codigo != codigo) {
+    await Logs(null, "recuperar_senha_erro", `Código inválido para: ${email}`, req);
+    return res.status(400).json({ error: "Código inválido" });
+  }
 
+  await Logs(null, "recuperar_senha_validar", `Código válido para: ${email}`, req);
   res.json({ message: "Código válido" });
 });
 
 app.post("/recuperar-senha/redefinir", async (req, res) => {
   const { email, novaSenha } = req.body;
-  if (!email || !novaSenha) return res.status(400).json({ error: "Dados inválidos" });
+  if (!email || !novaSenha) {
+    await Logs(null, "recuperar_senha_erro", "Dados inválidos ao redefinir senha", req);
+    return res.status(400).json({ error: "Dados inválidos" });
+  }
 
   try {
     const hash = await bcrypt.hash(novaSenha, 10);
     await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [hash, email]);
+
+    await Logs(null, "recuperar_senha_redefinir", `Senha redefinida com sucesso para: ${email}`, req);
     res.json({ message: "Senha atualizada com sucesso" });
   } catch (err) {
+    console.error(err);
+    await Logs(null, "recuperar_senha_erro", `Erro ao redefinir senha para ${email}: ${err.message}`, req);
     res.status(500).json({ error: "Erro ao atualizar senha" });
   }
 });
@@ -192,6 +239,7 @@ app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
 
   if (!cpf || !nome || !senha || !email) {
+    await Logs(null, "cadastro_erro", "CPF, nome, senha ou email não informados", req);
     return res
       .status(400)
       .json({ error: "CPF, nome, senha e e-mail são obrigatórios" });
@@ -200,6 +248,7 @@ app.post("/usuarios", async (req, res) => {
   try {
     const [existing] = await pool.query("SELECT id FROM usuarios WHERE cpf = ?", [cpf]);
     if (existing.length > 0) {
+      await Logs(null, "cadastro_erro", `Tentativa de cadastro com CPF já existente: ${cpf}`, req);
       return res.status(409).json({ error: "CPF já cadastrado" });
     }
 
@@ -233,9 +282,12 @@ app.post("/usuarios", async (req, res) => {
       [result.insertId]
     );
 
+    await Logs(usuario[0].id, "cadastro_sucesso", `Usuário ${nome} cadastrado com sucesso`, req);
+
     res.status(201).json(usuario[0]);
   } catch (err) {
     console.error("Erro ao criar usuário:", err);
+    await Logs(null, "cadastro_erro", `Erro ao criar usuário ${nome} - ${err.message}`, req);
     res.status(500).json({ error: "Erro ao criar usuário", details: err.message });
   }
 });
