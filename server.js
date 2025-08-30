@@ -26,16 +26,14 @@ const pool = mysql.createPool({
 async function Logs(id_usuario, tipo, detalhes, req, identificador = null) {
   try {
     let usuarioId = id_usuario;
-    let usuarioNome = null;
 
     if (identificador) {
       const [rows] = await pool.query(
-        "SELECT id, nome FROM usuarios WHERE email = ? OR cpf = ?",
+        "SELECT id FROM usuarios WHERE email = ? OR cpf = ?",
         [identificador, identificador]
       );
       if (rows.length > 0) {
         usuarioId = rows[0].id;
-        usuarioNome = rows[0].nome;
       }
     }
 
@@ -49,12 +47,13 @@ async function Logs(id_usuario, tipo, detalhes, req, identificador = null) {
     await pool.query(
       `INSERT INTO logs (id_usuario, tipo, detalhes, ip_origem, user_agent, data_criacao) 
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [usuarioId, tipo + (usuarioNome ? ` | ${usuarioNome}` : ""), detalhes, ip, userAgent, dataCriacao]
+      [usuarioId, tipo, detalhes, ip, userAgent, dataCriacao]
     );
   } catch (err) {
     console.error("Erro ao registrar log:", err);
   }
 }
+
 
 const brevoClient = new brevo.TransactionalEmailsApi();
 brevoClient.setApiKey(
@@ -148,7 +147,10 @@ app.post("/recuperar-senha/validar-codigo", async (req, res) => {
     return res.status(400).json({ error: "Código inválido" });
   }
 
-  await Logs(null, "recuperar_senha_validar", `Código válido para: ${email}`, req, email);
+  const [usuarioRows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
+  const usuarioId = usuarioRows.length > 0 ? usuarioRows[0].id : null;
+
+  await Logs(usuarioId, "recuperar_senha_validar", `Código válido para: ${email}`, req);
   res.json({ message: "Código válido" });
 });
 
@@ -160,17 +162,17 @@ app.post("/recuperar-senha/redefinir", async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query("SELECT id, nome FROM usuarios WHERE email = ?", [email]);
+    const [rows] = await pool.query("SELECT id FROM usuarios WHERE email = ?", [email]);
     if (rows.length === 0) {
       await Logs(null, "recuperar_senha_erro", `Usuário não encontrado ao redefinir senha: ${email}`, req, email);
       return res.status(404).json({ error: "Usuário não encontrado" });
     }
 
-    const usuario = rows[0];
+    const usuarioId = rows[0].id;
     const hash = await bcrypt.hash(novaSenha, 10);
     await pool.query("UPDATE usuarios SET senha = ? WHERE email = ?", [hash, email]);
 
-    await Logs(usuario.id, "recuperar_senha_redefinir", `Senha redefinida com sucesso para: ${email}`, req, email);
+    await Logs(usuarioId, "recuperar_senha_redefinir", `Senha redefinida com sucesso para: ${email}`, req);
     res.json({ message: "Senha atualizada com sucesso" });
   } catch (err) {
     console.error(err);
