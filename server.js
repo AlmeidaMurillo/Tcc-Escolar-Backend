@@ -346,28 +346,27 @@ app.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Senha incorreta" });
     }
 
-    if (usuario.situacao === "aprovado") {
-      await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
-      return res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
-    } 
-    
-    if (usuario.situacao === "rejeitado") {
-      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário rejeitado", req);
-      return res.status(403).json({ error: "Usuário rejeitado", situacao: usuario.situacao });
-    }
-    
-    if (usuario.situacao === "analise") {
-      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário em análise", req);
-      return res.status(403).json({ error: "Usuário em análise", situacao: usuario.situacao });
-    }
-    
-    if (usuario.situacao === "bloqueado") {
-      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário bloqueado", req);
-      return res.status(403).json({ error: "Usuário bloqueado", situacao: usuario.situacao });
+    switch (usuario.situacao) {
+      case "aprovado":
+        await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
+        break;
+      case "rejeitado":
+        await Logs(usuario.id, "login_erro", "Usuário rejeitado tentou login", req);
+        break;
+      case "analise":
+        await Logs(usuario.id, "login_erro", "Usuário em análise tentou login", req);
+        break;
+      case "bloqueado":
+        await Logs(usuario.id, "login_erro", "Usuário bloqueado tentou login", req);
+        break;
+      default:
+        await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
     }
 
-    await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
-    res.status(403).json({ error: "Situação inválida", situacao: usuario.situacao });
+    return res.json({
+      message: "Login processado",
+      situacao: usuario.situacao
+    });
 
   } catch (err) {
     console.error(err);
