@@ -324,30 +324,58 @@ app.post("/usuarios", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { cpf, senha } = req.body;
-  if (!cpf || !senha) return res.status(400).json({ error: "CPF e senha são obrigatórios" });
+  if (!cpf || !senha) 
+    return res.status(400).json({ error: "CPF e senha são obrigatórios" });
 
   try {
-    const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
+    const [rows] = await pool.query(
+      "SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", 
+      [cpf]
+    );
+
     if (rows.length === 0) {
-      await Logs(null, "login_erro", `Tentativa de login falhou - CPF não encontrado: ${cpf}`, req);
+      await Logs(null, "login_erro", `Tentativa de login - CPF não encontrado: ${cpf}`, req);
       return res.status(404).json({ error: "CPF não encontrado" });
     }
 
     const usuario = rows[0];
+
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) {
       await Logs(usuario.id, "login_erro", "Senha incorreta", req);
       return res.status(401).json({ error: "Senha incorreta" });
     }
 
-    await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
-    res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
+    if (usuario.situacao === "aprovado") {
+      await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
+      return res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao });
+    } 
+    
+    if (usuario.situacao === "rejeitado") {
+      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário rejeitado", req);
+      return res.status(403).json({ error: "Usuário rejeitado", situacao: usuario.situacao });
+    }
+    
+    if (usuario.situacao === "analise") {
+      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário em análise", req);
+      return res.status(403).json({ error: "Usuário em análise", situacao: usuario.situacao });
+    }
+    
+    if (usuario.situacao === "bloqueado") {
+      await Logs(usuario.id, "login_erro", "Tentativa de login - usuário bloqueado", req);
+      return res.status(403).json({ error: "Usuário bloqueado", situacao: usuario.situacao });
+    }
+
+    await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
+    res.status(403).json({ error: "Situação inválida", situacao: usuario.situacao });
+
   } catch (err) {
     console.error(err);
     await Logs(null, "login_erro", `Erro ao processar login: ${err.message}`, req);
     res.status(500).json({ error: "Erro ao processar login" });
   }
 });
+
 
 app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
