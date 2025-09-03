@@ -490,6 +490,24 @@ app.get("/usuarios/aprovados/count", async (req, res) => {
   }
 });
 
+app.get("/usuarios/bloqueados/count", async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'bloqueado'");
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao contar usuários aprovados" });
+  }
+});
+
+app.get("/usuarios/rejeitados/count", async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'rejeitado'");
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao contar usuários aprovados" });
+  }
+});
+
 app.get("/usuarios/count", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios");
