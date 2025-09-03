@@ -4,6 +4,7 @@ const cors = require("cors");
 const mysql = require("mysql2/promise");
 const brevo = require("@getbrevo/brevo");
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 app.use(cors());
@@ -20,6 +21,28 @@ const pool = mysql.createPool({
   queueLimit: 0,
   timezone: "-03:00",
 });
+
+function autenticar(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) return res.status(401).json({ error: "Token não fornecido" });
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, process.env.JWT_SECRET_USER || "segredoUsuario", (err, user) => {
+    if (err) return res.status(403).json({ error: "Token inválido ou expirado" });
+    req.user = user;
+    next();
+  });
+}
+
+function autenticarAdmin(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) return res.status(401).json({ error: "Token não fornecido" });
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, process.env.JWT_SECRET_ADMIN || "segredoAdmin", (err, admin) => {
+    if (err) return res.status(403).json({ error: "Token inválido ou expirado" });
+    req.admin = admin;
+    next();
+  });
+}
 
 // logs
 
@@ -61,7 +84,7 @@ brevoClient.setApiKey(
   process.env.BREVO_API_KEY
 );
 
-app.get("/logs", async (req, res) => {
+app.get("/logs", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT 
@@ -198,7 +221,7 @@ app.get("/ping", async (req, res) => {
   }
 });
 
-app.get("/usuarios", async (req, res) => {
+app.get("/usuarios", autenticar, async (req, res) => {
   let { search = "", status = "todos" } = req.query;
 
   status = status.toLowerCase();
@@ -324,50 +347,41 @@ app.post("/usuarios", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { cpf, senha } = req.body;
-  if (!cpf || !senha) 
-    return res.status(400).json({ error: "CPF e senha são obrigatórios" });
-
+  if (!cpf || !senha) return res.status(400).json({ error: "CPF e senha são obrigatórios" });
   try {
-    const [rows] = await pool.query(
-      "SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", 
-      [cpf]
-    );
-
+    const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
     if (rows.length === 0) {
-      await Logs(null, "login_erro", `Tentativa de login - CPF não encontrado: ${cpf}`, req);
+      await Logs(null, "login_erro", `CPF não encontrado: ${cpf}`, req);
       return res.status(404).json({ error: "CPF não encontrado" });
     }
-
     const usuario = rows[0];
-
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) {
       await Logs(usuario.id, "login_erro", "Senha incorreta", req);
       return res.status(401).json({ error: "Senha incorreta" });
     }
-
     switch (usuario.situacao) {
       case "aprovado":
         await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
-        break;
+        const token = jwt.sign(
+          { id: usuario.id, cpf: usuario.cpf, role: "user" },
+          process.env.JWT_SECRET_USER || "segredoUsuario",
+          { expiresIn: "1h" }
+        );
+        return res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao, token });
       case "rejeitado":
         await Logs(usuario.id, "login_erro", "Usuário rejeitado tentou login", req);
-        break;
+        return res.status(403).json({ error: "Usuário rejeitado" });
       case "analise":
         await Logs(usuario.id, "login_erro", "Usuário em análise tentou login", req);
-        break;
+        return res.status(403).json({ error: "Usuário em análise" });
       case "bloqueado":
         await Logs(usuario.id, "login_erro", "Usuário bloqueado tentou login", req);
-        break;
+        return res.status(403).json({ error: "Usuário bloqueado" });
       default:
         await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
+        return res.status(400).json({ error: "Situação inválida" });
     }
-
-    return res.json({
-      message: "Login processado",
-      situacao: usuario.situacao
-    });
-
   } catch (err) {
     console.error(err);
     await Logs(null, "login_erro", `Erro ao processar login: ${err.message}`, req);
@@ -375,23 +389,26 @@ app.post("/login", async (req, res) => {
   }
 });
 
-
 app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
   if (!usuario || !senha) return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
-
   try {
     const [rows] = await pool.query("SELECT usuario, senha FROM admins WHERE usuario = ?", [usuario]);
     if (rows.length === 0 || senha !== rows[0].senha)
       return res.status(401).json({ error: "Usuário ou senha incorretos" });
-
-    res.json({ message: "Login realizado com sucesso", usuario: rows[0].usuario });
+    const token = jwt.sign(
+      { usuario: rows[0].usuario, role: "admin" },
+      process.env.JWT_SECRET_ADMIN || "segredoAdmin",
+      { expiresIn: "8h" }
+    );
+    await Logs(null, "login_sucesso", `Admin ${usuario} logou com sucesso`, req);
+    res.json({ message: "Login admin realizado com sucesso", usuario: rows[0].usuario, token });
   } catch (err) {
     res.status(500).json({ error: "Erro ao processar login" });
   }
 });
 
-app.get("/usuarios/pendentes", async (req, res) => {
+app.get("/usuarios/pendentes", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
       "SELECT id, nome, email, cpf, telefone, data_nascimento, datasolicitacao, situacao FROM usuarios WHERE situacao = 'analise' OR situacao = 'rejeitado'"
@@ -402,7 +419,7 @@ app.get("/usuarios/pendentes", async (req, res) => {
   }
 });
 
-app.patch("/usuarios/:id/aprovar", async (req, res) => {
+app.patch("/usuarios/:id/aprovar", autenticarAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const now = new Date();
@@ -445,7 +462,7 @@ app.patch("/usuarios/:id/aprovar", async (req, res) => {
 });
 
 
-app.patch("/usuarios/:id/rejeitar", async (req, res) => {
+app.patch("/usuarios/:id/rejeitar", autenticarAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     await pool.query("UPDATE usuarios SET situacao = 'rejeitado' WHERE id = ?", [id]);
@@ -472,7 +489,7 @@ app.patch("/usuarios/:id/rejeitar", async (req, res) => {
 });
 
 
-app.get("/usuarios/pendentes/count", async (req, res) => {
+app.get("/usuarios/pendentes/count", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'analise'");
     res.json({ total: rows[0].total });
@@ -481,7 +498,7 @@ app.get("/usuarios/pendentes/count", async (req, res) => {
   }
 });
 
-app.get("/usuarios/aprovados/count", async (req, res) => {
+app.get("/usuarios/aprovados/count", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'aprovado'");
     res.json({ total: rows[0].total });
@@ -490,16 +507,16 @@ app.get("/usuarios/aprovados/count", async (req, res) => {
   }
 });
 
-app.get("/usuarios/bloqueados/count", async (req, res) => {
+app.get("/usuarios/bloqueados/count", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'bloqueado'");
     res.json({ total: rows[0].total });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao contar usuários aprovados" });
+    res.status(500).json({ error: "Erro ao contar usuários bloqueados" });
   }
 });
 
-app.get("/usuarios/rejeitados/count", async (req, res) => {
+app.get("/usuarios/rejeitados/count", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios WHERE situacao = 'rejeitado'");
     res.json({ total: rows[0].total });
@@ -508,7 +525,7 @@ app.get("/usuarios/rejeitados/count", async (req, res) => {
   }
 });
 
-app.get("/usuarios/count", async (req, res) => {
+app.get("/usuarios/count", autenticarAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT COUNT(*) AS total FROM usuarios");
     res.json({ total: rows[0].total });
