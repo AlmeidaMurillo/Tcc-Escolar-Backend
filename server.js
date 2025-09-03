@@ -221,7 +221,7 @@ app.get("/ping", async (req, res) => {
   }
 });
 
-app.get("/usuarios", autenticar, async (req, res) => {
+app.get("/usuarios", autenticarAdmin, async (req, res) => {
   let { search = "", status = "todos" } = req.query;
 
   status = status.toLowerCase();
