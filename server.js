@@ -391,22 +391,40 @@ app.post("/login", async (req, res) => {
 
 app.post("/loginadmin", async (req, res) => {
   const { usuario, senha } = req.body;
-  if (!usuario || !senha) return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
+
+  if (!usuario || !senha) {
+    return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
+  }
+
   try {
-    const [rows] = await pool.query("SELECT usuario, senha FROM admins WHERE usuario = ?", [usuario]);
-    if (rows.length === 0 || senha !== rows[0].senha)
+    const [rows] = await pool.query(
+      "SELECT usuario, senha FROM admins WHERE usuario = ?",
+      [usuario]
+    );
+
+    if (rows.length === 0 || senha !== rows[0].senha) {
       return res.status(401).json({ error: "Usuário ou senha incorretos" });
+    }
+
     const token = jwt.sign(
       { usuario: rows[0].usuario, role: "admin" },
       process.env.JWT_SECRET_ADMIN || "segredoAdmin",
       { expiresIn: "8h" }
     );
+
     await Logs(null, "login_sucesso", `Admin ${usuario} logou com sucesso`, req);
-    res.json({ message: "Login admin realizado com sucesso", usuario: rows[0].usuario, token });
+
+    res.json({
+      message: "Login admin realizado com sucesso",
+      usuario: rows[0].usuario,
+      token
+    });
   } catch (err) {
+    console.error("Erro ao processar login admin:", err);
     res.status(500).json({ error: "Erro ao processar login" });
   }
 });
+
 
 app.get("/usuarios/pendentes", autenticarAdmin, async (req, res) => {
   try {
