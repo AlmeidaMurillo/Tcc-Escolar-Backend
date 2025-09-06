@@ -108,6 +108,29 @@ app.get("/logs", autenticarAdmin, async (req, res) => {
 });
 
 
+app.get("/logs/recentes", autenticarAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                l.id_log AS id,
+                l.id_usuario,
+                u.nome AS usuario,
+                l.tipo,
+                l.detalhes,
+                l.data_criacao
+            FROM logs l
+            LEFT JOIN usuarios u ON u.id = l.id_usuario
+            ORDER BY l.data_criacao DESC
+            LIMIT 3
+        `);
+        res.json(rows);
+    } catch (err) {
+        console.error("Erro ao buscar logs recentes:", err);
+        res.status(500).json({ error: "Erro ao buscar logs recentes" });
+    }
+});
+
+
 
 app.post("/recuperar-senha/enviar-codigo", async (req, res) => {
   const { email } = req.body;
