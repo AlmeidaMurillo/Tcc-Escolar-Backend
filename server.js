@@ -650,7 +650,10 @@ app.post("/pix", autenticar, async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    const [remetenteRows] = await conn.query("SELECT id, saldo, nome, cpf FROM usuarios WHERE id = ?", [req.user.id]);
+    const [remetenteRows] = await conn.query(
+      "SELECT id, saldo, nome, cpf FROM usuarios WHERE id = ?",
+      [req.user.id]
+    );
     if (remetenteRows.length === 0) throw new Error("Usuário remetente não encontrado");
 
     const remetente = remetenteRows[0];
@@ -676,20 +679,30 @@ app.post("/pix", autenticar, async (req, res) => {
 
     const destinatario = destRows[0];
 
-    // Atualizar saldos
+    // Atualiza saldo dos usuários
     await conn.query("UPDATE usuarios SET saldo = saldo - ? WHERE id = ?", [valorNum, remetente.id]);
     await conn.query("UPDATE usuarios SET saldo = saldo + ? WHERE id = ?", [valorNum, destinatario.id]);
 
+    // Data da transferência ajustada (subtraindo 3h)
+    const now = new Date();
+    now.setHours(now.getHours() - 3);
+    const dataTransferencia = now.toISOString().slice(0, 19).replace("T", " ");
+
     // Inserir transferência
     await conn.query(
-      `INSERT INTO transferencias (id_usuario_origem, cpf_destino, nome_destino, valor) 
-       VALUES (?, ?, ?, ?)`,
-      [remetente.id, destinatario.cpf, destinatario.nome, valorNum]
+      `INSERT INTO transferencias (id_usuario_origem, cpf_destino, nome_destino, valor, data) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [remetente.id, destinatario.cpf, destinatario.nome, valorNum, dataTransferencia]
     );
 
     await conn.commit();
 
-    await Logs(remetente.id, "pix_sucesso", `Transferiu R$${valorNum} para ${destinatario.nome} (${tipo}: ${dado})`, req);
+    await Logs(
+      remetente.id,
+      "pix_sucesso",
+      `Transferiu R$${valorNum} para ${destinatario.nome} (${tipo}: ${dado})`,
+      req
+    );
 
     res.json({
       success: true,
@@ -697,7 +710,8 @@ app.post("/pix", autenticar, async (req, res) => {
       transferencia: {
         origem: remetente.nome,
         destino: destinatario.nome,
-        valor: valorNum
+        valor: valorNum,
+        data: dataTransferencia
       }
     });
   } catch (err) {
@@ -717,7 +731,6 @@ app.get("/transferencias/meus", autenticar, async (req, res) => {
   try {
     const conn = await pool.getConnection();
 
-    // Transferências enviadas pelo usuário
     const [enviadas] = await conn.query(
       `SELECT id, cpf_destino AS contato, nome_destino AS nome, valor, data
        FROM transferencias
@@ -726,7 +739,6 @@ app.get("/transferencias/meus", autenticar, async (req, res) => {
       [userId]
     );
 
-    // Transferências recebidas pelo usuário
     const [recebidas] = await conn.query(
       `SELECT t.id, u.nome AS nome, u.cpf AS contato, t.valor, t.data
        FROM transferencias t
