@@ -711,6 +711,41 @@ app.post("/pix", autenticar, async (req, res) => {
 });
 
 
+app.get("/transferencias/meus", autenticar, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const conn = await pool.getConnection();
+
+    // Transferências enviadas pelo usuário
+    const [enviadas] = await conn.query(
+      `SELECT id, cpf_destino AS contato, nome_destino AS nome, valor, data
+       FROM transferencias
+       WHERE id_usuario_origem = ?
+       ORDER BY data DESC`,
+      [userId]
+    );
+
+    // Transferências recebidas pelo usuário
+    const [recebidas] = await conn.query(
+      `SELECT t.id, u.nome AS nome, u.cpf AS contato, t.valor, t.data
+       FROM transferencias t
+       JOIN usuarios u ON u.id = t.id_usuario_origem
+       WHERE t.cpf_destino = (SELECT cpf FROM usuarios WHERE id = ?)
+       ORDER BY t.data DESC`,
+      [userId]
+    );
+
+    await conn.release();
+
+    res.json({ enviadas, recebidas });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar transferências" });
+  }
+});
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
