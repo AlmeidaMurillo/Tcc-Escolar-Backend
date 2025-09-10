@@ -634,6 +634,83 @@ app.get("/usuarios/buscar", autenticar, async (req, res) => {
   }
 });
 
+app.post("/pix", autenticar, async (req, res) => {
+  const { tipo, valor, dado } = req.body;
+
+  if (!tipo || !valor || !dado) {
+    return res.status(400).json({ error: "Tipo, valor e dado do destinatário são obrigatórios" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [remetenteRows] = await conn.query("SELECT id, saldo, nome, cpf FROM usuarios WHERE id = ?", [req.user.id]);
+    if (remetenteRows.length === 0) {
+      return res.status(404).json({ error: "Usuário remetente não encontrado" });
+    }
+
+    const remetente = remetenteRows[0];
+
+    if (remetente.saldo < valor) {
+      return res.status(400).json({ error: "Saldo insuficiente" });
+    }
+
+    let query = "";
+    switch (tipo.toLowerCase()) {
+      case "cpf":
+        query = "SELECT id, nome, cpf, saldo FROM usuarios WHERE cpf = ?";
+        break;
+      case "email":
+        query = "SELECT id, nome, cpf, saldo FROM usuarios WHERE email = ?";
+        break;
+      case "telefone":
+        query = "SELECT id, nome, cpf, saldo FROM usuarios WHERE telefone = ?";
+        break;
+      default:
+        return res.status(400).json({ error: "Tipo inválido" });
+    }
+
+    const [destRows] = await conn.query(query, [dado]);
+    if (destRows.length === 0) {
+      return res.status(404).json({ error: "Destinatário não encontrado" });
+    }
+    const destinatario = destRows[0];
+
+    // 💸 Atualizar saldos
+    await conn.query("UPDATE usuarios SET saldo = saldo - ? WHERE id = ?", [valor, remetente.id]);
+    await conn.query("UPDATE usuarios SET saldo = saldo + ? WHERE id = ?", [valor, destinatario.id]);
+
+    await conn.query(
+      `INSERT INTO transferencias (id_usuario_origem, cpf_destino, nome_destino, valor) 
+       VALUES (?, ?, ?, ?)`,
+      [remetente.id, destinatario.cpf, destinatario.nome, valor]
+    );
+
+    await conn.commit();
+
+    await Logs(remetente.id, "pix_sucesso", `Transferiu R$${valor} para ${destinatario.nome} (${tipo}: ${dado})`, req);
+
+    res.json({
+      success: true,
+      message: "Pix realizado com sucesso",
+      transferencia: {
+        origem: remetente.nome,
+        destino: destinatario.nome,
+        valor
+      }
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error("Erro ao realizar pix:", err);
+    await Logs(req.user.id, "pix_erro", `Erro: ${err.message}`, req);
+    res.status(500).json({ error: "Erro ao realizar Pix" });
+  } finally {
+    conn.release();
+  }
+});
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
