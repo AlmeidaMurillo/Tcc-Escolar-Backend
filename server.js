@@ -641,20 +641,20 @@ app.post("/pix", autenticar, async (req, res) => {
     return res.status(400).json({ error: "Tipo, valor e dado do destinatário são obrigatórios" });
   }
 
+  const valorNum = parseFloat(valor);
+  if (isNaN(valorNum) || valorNum <= 0) {
+    return res.status(400).json({ error: "Valor inválido" });
+  }
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
     const [remetenteRows] = await conn.query("SELECT id, saldo, nome, cpf FROM usuarios WHERE id = ?", [req.user.id]);
-    if (remetenteRows.length === 0) {
-      return res.status(404).json({ error: "Usuário remetente não encontrado" });
-    }
+    if (remetenteRows.length === 0) throw new Error("Usuário remetente não encontrado");
 
     const remetente = remetenteRows[0];
-
-    if (remetente.saldo < valor) {
-      return res.status(400).json({ error: "Saldo insuficiente" });
-    }
+    if (remetente.saldo < valorNum) throw new Error("Saldo insuficiente");
 
     let query = "";
     switch (tipo.toLowerCase()) {
@@ -668,28 +668,28 @@ app.post("/pix", autenticar, async (req, res) => {
         query = "SELECT id, nome, cpf, saldo FROM usuarios WHERE telefone = ?";
         break;
       default:
-        return res.status(400).json({ error: "Tipo inválido" });
+        throw new Error("Tipo inválido");
     }
 
     const [destRows] = await conn.query(query, [dado]);
-    if (destRows.length === 0) {
-      return res.status(404).json({ error: "Destinatário não encontrado" });
-    }
+    if (destRows.length === 0) throw new Error("Destinatário não encontrado");
+
     const destinatario = destRows[0];
 
-    // 💸 Atualizar saldos
-    await conn.query("UPDATE usuarios SET saldo = saldo - ? WHERE id = ?", [valor, remetente.id]);
-    await conn.query("UPDATE usuarios SET saldo = saldo + ? WHERE id = ?", [valor, destinatario.id]);
+    // Atualizar saldos
+    await conn.query("UPDATE usuarios SET saldo = saldo - ? WHERE id = ?", [valorNum, remetente.id]);
+    await conn.query("UPDATE usuarios SET saldo = saldo + ? WHERE id = ?", [valorNum, destinatario.id]);
 
+    // Inserir transferência
     await conn.query(
       `INSERT INTO transferencias (id_usuario_origem, cpf_destino, nome_destino, valor) 
        VALUES (?, ?, ?, ?)`,
-      [remetente.id, destinatario.cpf, destinatario.nome, valor]
+      [remetente.id, destinatario.cpf, destinatario.nome, valorNum]
     );
 
     await conn.commit();
 
-    await Logs(remetente.id, "pix_sucesso", `Transferiu R$${valor} para ${destinatario.nome} (${tipo}: ${dado})`, req);
+    await Logs(remetente.id, "pix_sucesso", `Transferiu R$${valorNum} para ${destinatario.nome} (${tipo}: ${dado})`, req);
 
     res.json({
       success: true,
@@ -697,18 +697,19 @@ app.post("/pix", autenticar, async (req, res) => {
       transferencia: {
         origem: remetente.nome,
         destino: destinatario.nome,
-        valor
+        valor: valorNum
       }
     });
   } catch (err) {
     await conn.rollback();
     console.error("Erro ao realizar pix:", err);
     await Logs(req.user.id, "pix_erro", `Erro: ${err.message}`, req);
-    res.status(500).json({ error: "Erro ao realizar Pix" });
+    res.status(500).json({ error: err.message || "Erro ao realizar Pix" });
   } finally {
     conn.release();
   }
 });
+
 
 
 const PORT = process.env.PORT || 3000;
