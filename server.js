@@ -311,24 +311,26 @@ app.get("/usuarios/check-telefone/:telefone", async (req, res) => {
   }
 });
 
-app.get("/usuarios/meu-saldo", autenticar, async (req, res) => {
+app.get("/usuarios/meus-dados", autenticar, async (req, res) => {
+  const userId = req.user.id;
+
   try {
-    const userId = req.user.id; 
     const [rows] = await pool.query(
-      "SELECT saldo FROM usuarios WHERE id = ?",
+      `SELECT id, nome, email, cpf, telefone, saldo
+       FROM usuarios
+       WHERE id = ?`,
       [userId]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Usuário não encontrado" });
-    }
+    if (rows.length === 0) return res.status(404).json({ error: "Usuário não encontrado" });
 
-    res.json({ saldo: rows[0].saldo });
+    res.json(rows[0]);
   } catch (err) {
-    console.error("Erro ao buscar saldo:", err);
-    res.status(500).json({ error: "Erro ao buscar saldo" });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao buscar dados do usuário" });
   }
 });
+
 
 app.post("/usuarios", async (req, res) => {
   const { cpf, nome, senha, email, telefone, data_nascimento } = req.body;
