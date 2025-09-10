@@ -596,6 +596,44 @@ app.get("/usuarios/count", autenticarAdmin, async (req, res) => {
   }
 });
 
+app.get("/usuarios/buscar", autenticar, async (req, res) => {
+  const { tipo, valor } = req.query;
+
+  if (!tipo || !valor) return res.status(400).json({ error: "Tipo e valor são obrigatórios" });
+
+  try {
+    let query = "";
+    let params = [];
+
+    switch(tipo.toLowerCase()) {
+      case "email":
+        query = "SELECT id, nome, email, telefone, cpf, saldo FROM usuarios WHERE email = ?";
+        params = [valor];
+        break;
+      case "telefone":
+        query = "SELECT id, nome, email, telefone, cpf, saldo FROM usuarios WHERE telefone = ?";
+        params = [valor];
+        break;
+      case "cpf":
+        query = "SELECT id, nome, email, telefone, cpf, saldo FROM usuarios WHERE cpf = ?";
+        params = [valor];
+        break;
+      default:
+        return res.status(400).json({ error: "Tipo inválido. Use Email, Telefone ou CPF" });
+    }
+
+    const [rows] = await pool.query(query, params);
+
+    if (rows.length === 0) return res.status(404).json({ error: "Usuário não encontrado" });
+
+    res.json(rows[0]);
+
+  } catch (err) {
+    console.error("Erro ao buscar usuário:", err);
+    res.status(500).json({ error: "Erro ao buscar usuário" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
