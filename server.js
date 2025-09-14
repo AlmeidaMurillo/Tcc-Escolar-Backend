@@ -679,16 +679,13 @@ app.post("/pix", autenticar, async (req, res) => {
 
     const destinatario = destRows[0];
 
-    // Atualiza saldo dos usuários
     await conn.query("UPDATE usuarios SET saldo = saldo - ? WHERE id = ?", [valorNum, remetente.id]);
     await conn.query("UPDATE usuarios SET saldo = saldo + ? WHERE id = ?", [valorNum, destinatario.id]);
 
-    // Data da transferência ajustada (subtraindo 3h)
     const now = new Date();
     now.setHours(now.getHours() - 3);
     const dataTransferencia = now.toISOString().slice(0, 19).replace("T", " ");
 
-    // Inserir transferência
     await conn.query(
       `INSERT INTO transferencias (id_usuario_origem, cpf_destino, nome_destino, valor, data) 
        VALUES (?, ?, ?, ?, ?)`,
@@ -754,6 +751,35 @@ app.get("/transferencias/meus", autenticar, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erro ao buscar transferências" });
+  }
+});
+
+
+app.patch("/usuarios/:id/bloquear", autenticarAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("UPDATE usuarios SET situacao = 'bloqueado' WHERE id = ?", [id]);
+
+    await Logs(id, "usuario_bloqueado", `Usuário ID ${id} foi bloqueado pelo admin`, req);
+
+    res.json({ success: true, message: "Usuário bloqueado com sucesso" });
+  } catch (err) {
+    console.error("Erro ao bloquear usuário:", err);
+    res.status(500).json({ error: "Erro ao bloquear usuário" });
+  }
+});
+
+app.patch("/usuarios/:id/desbloquear", autenticarAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("UPDATE usuarios SET situacao = 'aprovado' WHERE id = ?", [id]);
+
+    await Logs(id, "usuario_desbloqueado", `Usuário ID ${id} foi desbloqueado pelo admin`, req);
+
+    res.json({ success: true, message: "Usuário desbloqueado com sucesso" });
+  } catch (err) {
+    console.error("Erro ao desbloquear usuário:", err);
+    res.status(500).json({ error: "Erro ao desbloquear usuário" });
   }
 });
 
