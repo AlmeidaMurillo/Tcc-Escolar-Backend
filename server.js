@@ -427,7 +427,6 @@ app.post("/login", async (req, res) => {
 
       case "bloqueado":
         await Logs(usuario.id, "login_erro", "Usuário bloqueado tentou login", req);
-        return res.status(403).json({ error: "Usuário bloqueado", situacao: "bloqueado" });
 
       default:
         await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
