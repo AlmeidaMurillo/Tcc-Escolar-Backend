@@ -109,8 +109,8 @@ app.get("/logs", autenticarAdmin, async (req, res) => {
 
 
 app.get("/logs/recentes", autenticarAdmin, async (req, res) => {
-    try {
-        const [rows] = await pool.query(`
+  try {
+    const [rows] = await pool.query(`
             SELECT 
                 l.id_log AS id,
                 l.id_usuario,
@@ -123,11 +123,11 @@ app.get("/logs/recentes", autenticarAdmin, async (req, res) => {
             ORDER BY l.data_criacao DESC
             LIMIT 3
         `);
-        res.json(rows);
-    } catch (err) {
-        console.error("Erro ao buscar logs recentes:", err);
-        res.status(500).json({ error: "Erro ao buscar logs recentes" });
-    }
+    res.json(rows);
+  } catch (err) {
+    console.error("Erro ao buscar logs recentes:", err);
+    res.status(500).json({ error: "Erro ao buscar logs recentes" });
+  }
 });
 
 
@@ -392,18 +392,21 @@ app.post("/usuarios", async (req, res) => {
 app.post("/login", async (req, res) => {
   const { cpf, senha } = req.body;
   if (!cpf || !senha) return res.status(400).json({ error: "CPF e senha são obrigatórios" });
+
   try {
     const [rows] = await pool.query("SELECT id, cpf, senha, situacao FROM usuarios WHERE cpf = ?", [cpf]);
     if (rows.length === 0) {
       await Logs(null, "login_erro", `CPF não encontrado: ${cpf}`, req);
       return res.status(404).json({ error: "CPF não encontrado" });
     }
+
     const usuario = rows[0];
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) {
       await Logs(usuario.id, "login_erro", "Senha incorreta", req);
       return res.status(401).json({ error: "Senha incorreta" });
     }
+
     switch (usuario.situacao) {
       case "aprovado":
         await Logs(usuario.id, "login_sucesso", "Usuário logou com sucesso", req);
@@ -413,15 +416,19 @@ app.post("/login", async (req, res) => {
           { expiresIn: "1h" }
         );
         return res.json({ message: "Login realizado com sucesso", situacao: usuario.situacao, token });
+
       case "rejeitado":
         await Logs(usuario.id, "login_erro", "Usuário rejeitado tentou login", req);
-        return res.status(403).json({ error: "Usuário rejeitado" });
+        return res.status(403).json({ error: "Usuário rejeitado", situacao: "rejeitado" });
+
       case "analise":
         await Logs(usuario.id, "login_erro", "Usuário em análise tentou login", req);
-        return res.status(403).json({ error: "Usuário em análise" });
+        return res.status(403).json({ error: "Usuário em análise", situacao: "analise" });
+
       case "bloqueado":
         await Logs(usuario.id, "login_erro", "Usuário bloqueado tentou login", req);
-        return res.status(403).json({ error: "Usuário bloqueado" });
+        return res.status(403).json({ error: "Usuário bloqueado", situacao: "bloqueado" });
+
       default:
         await Logs(usuario.id, "login_erro", `Situação desconhecida: ${usuario.situacao}`, req);
         return res.status(400).json({ error: "Situação inválida" });
@@ -605,7 +612,7 @@ app.get("/usuarios/buscar", autenticar, async (req, res) => {
     let query = "";
     let params = [];
 
-    switch(tipo.toLowerCase()) {
+    switch (tipo.toLowerCase()) {
       case "email":
         query = "SELECT id, nome, email, telefone, cpf, saldo FROM usuarios WHERE email = ?";
         params = [valor];
