@@ -806,6 +806,60 @@ app.get("/transferencias/volume", autenticarAdmin, async (req, res) => {
   }
 });
 
+app.patch("/usuarios/:id/analise", autenticarAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("UPDATE usuarios SET situacao = 'analise' WHERE id = ?", [id]);
+
+    const [rows] = await pool.query("SELECT nome, email FROM usuarios WHERE id = ?", [id]);
+    if (rows.length > 0) {
+      const usuario = rows[0];
+
+      await brevoClient.sendTransacEmail({
+        sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
+        to: [{ email: usuario.email }],
+        subject: "⚠️ Usuário em Análise",
+        htmlContent: `<p>Olá <b>${usuario.nome}</b>,</p>
+                      <p>Seu cadastro foi colocado <span style="color:orange"><b>em análise</b></span>.</p>
+                      <p>Você será notificado assim que houver atualização da sua situação.</p>`,
+      });
+    }
+
+    await Logs(id, "usuario_analise", "Usuário colocado em análise pelo admin", req);
+    res.json({ success: true, message: "Usuário colocado em análise com sucesso" });
+  } catch (err) {
+    console.error("Erro ao colocar usuário em análise:", err);
+    res.status(500).json({ error: "Erro ao colocar usuário em análise" });
+  }
+});
+
+
+app.delete("/usuarios/:id", autenticarAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query("SELECT nome, email FROM usuarios WHERE id = ?", [id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Usuário não encontrado" });
+
+    const usuario = rows[0];
+    await pool.query("DELETE FROM usuarios WHERE id = ?", [id]);
+
+    await brevoClient.sendTransacEmail({
+      sender: { email: "almeidamurillo196@gmail.com", name: "Sistema TCC" },
+      to: [{ email: usuario.email }],
+      subject: "❌ Conta Excluída",
+      htmlContent: `<p>Olá <b>${usuario.nome}</b>,</p>
+                    <p>Sua conta foi <span style="color:red"><b>excluída</b></span> do sistema pelo admin.</p>`,
+    });
+
+    await Logs(id, "usuario_excluido", "Usuário excluído pelo admin", req);
+    res.json({ success: true, message: "Usuário excluído com sucesso" });
+  } catch (err) {
+    console.error("Erro ao excluir usuário:", err);
+    res.status(500).json({ error: "Erro ao excluir usuário" });
+  }
+});
+
+
 
 
 const PORT = process.env.PORT || 3000;
