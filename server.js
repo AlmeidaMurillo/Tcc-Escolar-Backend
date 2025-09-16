@@ -791,6 +791,22 @@ app.patch("/usuarios/:id/desbloquear", autenticarAdmin, async (req, res) => {
 });
 
 
+app.get("/transferencias/volume", autenticarAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        IFNULL(SUM(valor), 0) AS total
+      FROM transferencias
+    `);
+
+    res.json({ total: rows[0].total });
+  } catch (err) {
+    console.error("Erro ao calcular volume de transações:", err);
+    res.status(500).json({ error: "Erro ao calcular volume de transações" });
+  }
+});
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
