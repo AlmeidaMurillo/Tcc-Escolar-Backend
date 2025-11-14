@@ -859,6 +859,32 @@ app.delete("/usuarios/:id", autenticarAdmin, async (req, res) => {
   }
 });
 
+app.patch("/usuarios/:id/saldo", autenticarAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { novoSaldo } = req.body;
+
+  if (novoSaldo === undefined || isNaN(novoSaldo) || novoSaldo < 0) {
+    return res.status(400).json({ error: "Novo saldo deve ser um número válido e não negativo" });
+  }
+
+  try {
+    const [rows] = await pool.query("SELECT nome, saldo FROM usuarios WHERE id = ?", [id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Usuário não encontrado" });
+
+    const usuario = rows[0];
+    const saldoAntigo = usuario.saldo;
+
+    await pool.query("UPDATE usuarios SET saldo = ? WHERE id = ?", [novoSaldo, id]);
+
+    await Logs(id, "saldo_alterado", `Saldo alterado de R$${saldoAntigo} para R$${novoSaldo} pelo admin`, req);
+
+    res.json({ success: true, message: "Saldo atualizado com sucesso", novoSaldo });
+  } catch (err) {
+    console.error("Erro ao atualizar saldo:", err);
+    res.status(500).json({ error: "Erro ao atualizar saldo" });
+  }
+});
+
 
 
 

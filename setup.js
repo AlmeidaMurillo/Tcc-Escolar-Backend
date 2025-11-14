@@ -10,14 +10,11 @@ async function setupDatabase() {
       user: process.env.MYSQLUSER,
       password: process.env.MYSQLPASSWORD,
       database: process.env.MYSQLDATABASE,
-      port: process.env.MYSQLPORT,
-      multipleStatements: true, // Permite executar múltiplas queries
     });
 
     console.log("Conectado ao banco de dados.");
 
-    // Criar tabelas
-    const createTables = `
+    const createUsuarios = `
       CREATE TABLE IF NOT EXISTS usuarios (
         id INT NOT NULL AUTO_INCREMENT,
         cpf VARCHAR(20) NOT NULL,
@@ -32,8 +29,10 @@ async function setupDatabase() {
         saldo DECIMAL(20, 2) DEFAULT 0.00,
         PRIMARY KEY (id),
         UNIQUE KEY cpf (cpf)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
 
+    const createLogs = `
       CREATE TABLE IF NOT EXISTS logs (
         id_log INT NOT NULL AUTO_INCREMENT,
         id_usuario INT DEFAULT NULL,
@@ -43,13 +42,17 @@ async function setupDatabase() {
         ip_origem VARCHAR(45) DEFAULT NULL,
         user_agent VARCHAR(255) DEFAULT NULL,
         PRIMARY KEY (id_log)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
 
+    const createAdmins = `
       CREATE TABLE IF NOT EXISTS admins (
         usuario VARCHAR(100) DEFAULT NULL,
         senha VARCHAR(255) DEFAULT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
 
+    const createTransferencias = `
       CREATE TABLE IF NOT EXISTS transferencias (
         id INT NOT NULL AUTO_INCREMENT,
         id_usuario_origem INT NOT NULL,
@@ -58,20 +61,15 @@ async function setupDatabase() {
         valor DECIMAL(20, 2) NOT NULL,
         data DATETIME NOT NULL,
         PRIMARY KEY (id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `;
 
-    await connection.execute(createTables);
-    console.log("Tabelas criadas com sucesso.");
+    await connection.execute(createUsuarios);
+    await connection.execute(createLogs);
+    await connection.execute(createAdmins);
+    await connection.execute(createTransferencias);
 
-    // Inserir admin padrão
-    const insertAdmin = `
-      INSERT IGNORE INTO admins (usuario, senha) VALUES ('admin', 'admin123');
-    `;
-    await connection.execute(insertAdmin);
-    console.log("Admin padrão inserido (se não existir).");
-
-    console.log("Setup concluído!");
+    console.log("Tabelas criadas/validadas com sucesso!");
   } catch (error) {
     console.error("Erro durante o setup:", error);
   } finally {
